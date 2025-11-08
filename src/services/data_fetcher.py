@@ -75,9 +75,13 @@ class DataFetcher:
         """Get USDC balance for a wallet"""
         try:
             from web3 import Web3
-            
+
             w3 = Web3(Web3.HTTPProvider(Config.RPC_URL))
-            
+
+            # Convert to checksum address (Web3.py requirement)
+            checksummed_address = w3.to_checksum_address(wallet_address)
+            checksummed_usdc = w3.to_checksum_address(Config.USDC_CONTRACT_ADDRESS)
+
             # USDC contract ABI (just the balanceOf function)
             usdc_abi = [{
                 "constant": True,
@@ -86,17 +90,17 @@ class DataFetcher:
                 "outputs": [{"name": "balance", "type": "uint256"}],
                 "type": "function"
             }]
-            
+
             usdc_contract = w3.eth.contract(
-                address=Config.USDC_CONTRACT_ADDRESS,
+                address=checksummed_usdc,
                 abi=usdc_abi
             )
-            
-            balance_wei = usdc_contract.functions.balanceOf(wallet_address).call()
+
+            balance_wei = usdc_contract.functions.balanceOf(checksummed_address).call()
             balance_usdc = balance_wei / (10 ** 6)  # USDC has 6 decimals
-            
+
             return balance_usdc
-            
+
         except Exception as e:
             print(f"❌ Error getting balance: {e}")
             return 0.0
