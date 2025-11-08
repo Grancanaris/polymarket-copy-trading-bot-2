@@ -5,18 +5,20 @@ from py_clob_client.constants import POLYGON
 
 def create_clob_client() -> ClobClient:
     load_dotenv()
-    
+
     host = "https://clob.polymarket.com"
     key = os.getenv('PK')  # Your exported private key from Polymarket
-    
-    # REPLACE THIS: Your Polymarket proxy address (shown below profile picture)
-    polymarket_proxy_address = "0x1234567890abcdef1234567890abcdef12345678"
-    
+
+    # Get proxy wallet from environment variable
+    polymarket_proxy_address = os.getenv('PROXY_WALLET')
+    if not polymarket_proxy_address:
+        raise ValueError("PROXY_WALLET not found in .env file")
+
     client = ClobClient(
-        host=host, 
-        key=key, 
-        chain_id=POLYGON, 
-        signature_type=1, 
+        host=host,
+        key=key,
+        chain_id=POLYGON,
+        signature_type=1,
         funder=polymarket_proxy_address
     )
     
