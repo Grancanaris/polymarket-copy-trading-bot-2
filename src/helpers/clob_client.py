@@ -27,16 +27,24 @@ def create_clob_client() -> ClobClient:
     print(f"🔑 EOA Wallet (from PK): {eoa_wallet_address}")
     print(f"🔑 Proxy Wallet: {polymarket_proxy_address}")
 
-    # For EOA wallets, funder should be the proxy wallet
+    # Polymarket uses proxy wallets which are smart contracts
+    # signature_type=2 for POLY_GNOSIS_SAFE (Polymarket's proxy implementation)
+    # funder=proxy wallet address (where your funds are)
+    # key=your EOA private key (to authorize the proxy)
     client = ClobClient(
         host=host,
         key=key,
         chain_id=POLYGON,
-        signature_type=0,  # 0 for EOA, 1 for Gnosis Safe
-        funder=polymarket_proxy_address
+        signature_type=2,  # 2 for POLY_GNOSIS_SAFE (Polymarket proxy)
+        funder=polymarket_proxy_address  # Your Polymarket proxy address
     )
 
-    # Create or derive API credentials automatically
-    client.set_api_creds(client.derive_api_key())
+    # Derive API credentials for the proxy wallet
+    try:
+        api_creds = client.derive_api_key()
+        client.set_api_creds(api_creds)
+        print(f"✅ API credentials set successfully")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not derive API key: {e}")
 
     return client
