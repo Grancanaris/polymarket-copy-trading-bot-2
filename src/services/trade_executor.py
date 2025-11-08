@@ -160,8 +160,9 @@ class TradeExecutor:
             market_order_args = MarketOrderArgs(
                 token_id=trade.asset,
                 amount=copy_amount,
+                side=BUY
             )
-            
+
             signed_order = self.clob_client.create_market_order(market_order_args)
             response = self.clob_client.post_order(signed_order, OrderType.FOK)
             
