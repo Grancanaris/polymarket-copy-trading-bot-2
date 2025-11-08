@@ -119,35 +119,41 @@ class TradeExecutor:
         
         return 'skip'
     
-    def _execute_buy_strategy(self, trade: UserActivity, my_balance: float, 
+    def _execute_buy_strategy(self, trade: UserActivity, my_balance: float,
                             target_balance: float) -> bool:
         """Execute buy strategy with proportional sizing"""
         try:
             if my_balance < 1.0:  # Minimum balance check
                 print(f"{Fore.YELLOW}⚠️ Insufficient balance to copy buy trade{Style.RESET_ALL}")
                 return True
-            
+
             # Calculate proportional size based on balance ratio
             balance_ratio = min(my_balance / (target_balance + trade.usdc_size), 1.0)
-            copy_amount = trade.usdc_size * balance_ratio
-            
-            # Minimum copy amount
-            if copy_amount < 0.1:
-                print(f"{Fore.YELLOW}⚠️ Copy amount too small: ${copy_amount:.2f}{Style.RESET_ALL}")
+            copy_amount_proportional = trade.usdc_size * balance_ratio
+
+            # Use minimum of $1.00 or proportional amount (whichever is larger, but capped at balance)
+            min_trade_size = 1.0
+            copy_amount = max(min_trade_size, copy_amount_proportional)
+            copy_amount = min(copy_amount, my_balance * 0.2)  # Max 20% of balance per trade
+
+            # Final minimum check
+            if copy_amount < 0.5:
+                print(f"{Fore.YELLOW}⚠️ Copy amount too small: ${copy_amount:.2f} (would need at least $0.50){Style.RESET_ALL}")
                 return True
-            
+
             print(f"📈 Buying ${copy_amount:.2f} worth of {trade.outcome}")
-            
+
             # Get current market price
             try:
                 current_price_data = self.clob_client.get_last_trade_price(trade.asset)
                 current_price = float(current_price_data.get('price', trade.price))
             except:
                 current_price = trade.price
-            
-            # Check if price is reasonable (within 10% of original trade)
-            if abs(current_price - trade.price) / trade.price > 0.1:
-                print(f"{Fore.YELLOW}⚠️ Price moved too much. Original: ${trade.price:.3f}, Current: ${current_price:.3f}{Style.RESET_ALL}")
+
+            # Check if price is reasonable (within 30% for fast-moving markets)
+            price_deviation = abs(current_price - trade.price) / trade.price
+            if price_deviation > 0.30:
+                print(f"{Fore.YELLOW}⚠️ Price moved too much ({price_deviation:.1%}). Original: ${trade.price:.3f}, Current: ${current_price:.3f}{Style.RESET_ALL}")
                 return True
             
             # Create market buy order
