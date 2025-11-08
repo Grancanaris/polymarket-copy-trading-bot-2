@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
 from py_clob_client.constants import POLYGON
+from web3 import Web3
 
 def create_clob_client() -> ClobClient:
     load_dotenv()
@@ -13,12 +14,20 @@ def create_clob_client() -> ClobClient:
     if key and not key.startswith('0x'):
         key = '0x' + key
 
+    # Derive the EOA wallet address from the private key
+    w3 = Web3()
+    account = w3.eth.account.from_key(key)
+    eoa_wallet_address = account.address
+
     # Get proxy wallet from environment variable
     polymarket_proxy_address = os.getenv('PROXY_WALLET')
     if not polymarket_proxy_address:
         raise ValueError("PROXY_WALLET not found in .env file")
 
-    # Use signature_type=0 for standard EOA wallets (MetaMask, etc)
+    print(f"🔑 EOA Wallet (from PK): {eoa_wallet_address}")
+    print(f"🔑 Proxy Wallet: {polymarket_proxy_address}")
+
+    # For EOA wallets, funder should be the proxy wallet
     client = ClobClient(
         host=host,
         key=key,
@@ -26,8 +35,8 @@ def create_clob_client() -> ClobClient:
         signature_type=0,  # 0 for EOA, 1 for Gnosis Safe
         funder=polymarket_proxy_address
     )
-    
+
     # Create or derive API credentials automatically
     client.set_api_creds(client.derive_api_key())
-    
+
     return client
