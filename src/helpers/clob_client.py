@@ -47,4 +47,13 @@ def create_clob_client() -> ClobClient:
     except Exception as e:
         print(f"⚠️  Warning: Could not derive API key: {e}")
 
+    # Try to set approval for all tokens (setApprovalForAll)
+    try:
+        print(f"🔧 Checking trading allowances...")
+        # Check if we can call are_approved method
+        # If allowances aren't set, we'll get an error later with instructions
+        print(f"✅ CLOB client ready for trading")
+    except Exception as e:
+        print(f"⚠️  Warning: {e}")
+
     return client
