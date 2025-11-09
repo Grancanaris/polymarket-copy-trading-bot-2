@@ -55,15 +55,75 @@ class RewardsClaimer:
                         total_value = sum(float(p.get('currentValue', 0)) for p in redeemable_positions)
                         print(f"{Fore.CYAN}💰 Found {len(redeemable_positions)} redeemable position(s) worth ${total_value:.2f}{Style.RESET_ALL}")
 
-                        # Note: For Polymarket proxy wallets, automatic redemption is complex
-                        # The positions are owned by the proxy contract, not the EOA
-                        # For now, notify the user to redeem manually
-                        print(f"{Fore.YELLOW}⚠️  Auto-redemption for proxy wallets requires manual action{Style.RESET_ALL}")
-                        print(f"{Fore.CYAN}   Please visit https://polymarket.com/portfolio to claim your winnings{Style.RESET_ALL}")
-
-                        # List the redeemable positions for the user
+                        # Try to redeem each position automatically
                         for position in redeemable_positions:
-                            print(f"{Fore.BLUE}   • {position.get('title', 'Unknown')}: ${position.get('currentValue', 0):.2f}{Style.RESET_ALL}")
+                            try:
+                                title = position.get('title', 'Unknown')
+                                value = float(position.get('currentValue', 0))
+
+                                # Skip positions with 0 value
+                                if value < 0.01:
+                                    print(f"{Fore.BLUE}  ⏭️ Skipping {title}: $0.00{Style.RESET_ALL}")
+                                    continue
+
+                                print(f"{Fore.YELLOW}  🔄 Attempting to redeem: {title} (${value:.2f}){Style.RESET_ALL}")
+
+                                # Get the token ID from the position
+                                token_id = position.get('asset') or position.get('assetId')
+                                if not token_id:
+                                    print(f"{Fore.RED}  ❌ No token ID found for position{Style.RESET_ALL}")
+                                    continue
+
+                                # Try to sell the entire position at market price to close it out
+                                # This effectively "redeems" by converting to USDC
+                                try:
+                                    # Get current size
+                                    size = float(position.get('size', 0))
+                                    if size <= 0:
+                                        continue
+
+                                    # Get orderbook to find best bid
+                                    orderbook = self.clob_client.get_order_book(token_id)
+
+                                    if not orderbook.bids or len(orderbook.bids) == 0:
+                                        print(f"{Fore.YELLOW}  ⚠️ No market liquidity to redeem{Style.RESET_ALL}")
+                                        continue
+
+                                    # For redeemable positions, they should be worth ~$1.00
+                                    # We can sell at any reasonable price since they're resolved
+                                    best_bid_price = max(float(bid.price) for bid in orderbook.bids)
+
+                                    # Only redeem if price is reasonable (>0.95 for winning positions)
+                                    if best_bid_price < 0.95:
+                                        print(f"{Fore.YELLOW}  ⚠️ Price too low (${best_bid_price:.3f}), waiting for better liquidity{Style.RESET_ALL}")
+                                        continue
+
+                                    # Create sell order
+                                    from py_clob_client.clob_types import OrderArgs, OrderType
+                                    from py_clob_client.order_builder.constants import SELL
+
+                                    order_args = OrderArgs(
+                                        token_id=token_id,
+                                        price=best_bid_price,
+                                        size=round(size, 2),
+                                        side=SELL
+                                    )
+
+                                    signed_order = self.clob_client.create_order(order_args)
+                                    response = self.clob_client.post_order(signed_order, OrderType.FOK)
+
+                                    if response.get('success', False):
+                                        actual_value = size * best_bid_price
+                                        print(f"{Fore.GREEN}  ✅ Successfully redeemed ${actual_value:.2f} from {title}!{Style.RESET_ALL}")
+                                    else:
+                                        error = response.get('error', response)
+                                        print(f"{Fore.YELLOW}  ⚠️ Could not auto-redeem: {error}{Style.RESET_ALL}")
+
+                                except Exception as e:
+                                    print(f"{Fore.YELLOW}  ⚠️ Error redeeming via market: {e}{Style.RESET_ALL}")
+
+                            except Exception as e:
+                                print(f"{Fore.YELLOW}  ⚠️ Could not process position: {e}{Style.RESET_ALL}")
                     else:
                         print(f"{Fore.BLUE}ℹ️  No redeemable positions found{Style.RESET_ALL}")
                 else:
