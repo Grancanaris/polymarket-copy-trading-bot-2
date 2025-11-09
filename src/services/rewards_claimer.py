@@ -32,32 +32,46 @@ class RewardsClaimer:
                 time.sleep(self.claim_interval)
 
     def _claim_rewards(self):
-        """Claim available rewards"""
+        """Claim available rewards from resolved positions"""
         try:
-            # Get unclaimed rewards
-            rewards = self.clob_client.get_unclaimed_rewards()
+            # Try to get earnings/rewards using available client methods
+            # Check for redeemable positions
+            try:
+                # Get all positions
+                import requests
+                from config.env import Config
 
-            if rewards and len(rewards) > 0:
-                total_rewards = sum(float(r.get('amount', 0)) for r in rewards)
+                response = requests.get(
+                    f"{Config.POLYMARKET_API_URL}/positions",
+                    params={'user': Config.PROXY_WALLET},
+                    timeout=10
+                )
 
-                if total_rewards > 0:
-                    print(f"{Fore.CYAN}💰 Claiming ${total_rewards:.2f} in rewards...{Style.RESET_ALL}")
+                if response.status_code == 200:
+                    positions = response.json()
+                    redeemable_positions = [p for p in positions if p.get('redeemable', False)]
 
-                    # Claim rewards
-                    result = self.clob_client.claim_rewards()
+                    if redeemable_positions:
+                        total_value = sum(float(p.get('currentValue', 0)) for p in redeemable_positions)
+                        print(f"{Fore.CYAN}💰 Found {len(redeemable_positions)} redeemable position(s) worth ${total_value:.2f}{Style.RESET_ALL}")
 
-                    if result.get('success', False):
-                        print(f"{Fore.GREEN}✅ Successfully claimed ${total_rewards:.2f}!{Style.RESET_ALL}")
+                        # Note: For Polymarket proxy wallets, automatic redemption is complex
+                        # The positions are owned by the proxy contract, not the EOA
+                        # For now, notify the user to redeem manually
+                        print(f"{Fore.YELLOW}⚠️  Auto-redemption for proxy wallets requires manual action{Style.RESET_ALL}")
+                        print(f"{Fore.CYAN}   Please visit https://polymarket.com/portfolio to claim your winnings{Style.RESET_ALL}")
+
+                        # List the redeemable positions for the user
+                        for position in redeemable_positions:
+                            print(f"{Fore.BLUE}   • {position.get('title', 'Unknown')}: ${position.get('currentValue', 0):.2f}{Style.RESET_ALL}")
                     else:
-                        print(f"{Fore.YELLOW}⚠️ Claim result: {result}{Style.RESET_ALL}")
+                        print(f"{Fore.BLUE}ℹ️  No redeemable positions found{Style.RESET_ALL}")
                 else:
-                    print(f"{Fore.BLUE}ℹ️ No rewards available to claim{Style.RESET_ALL}")
-            else:
-                print(f"{Fore.BLUE}ℹ️ No unclaimed rewards found{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}⚠️ Could not fetch positions for claiming{Style.RESET_ALL}")
 
-        except AttributeError:
-            # Method might not exist in this version of py_clob_client
-            print(f"{Fore.YELLOW}⚠️ Rewards claiming not supported in this client version{Style.RESET_ALL}")
-            self.running = False  # Stop trying if method doesn't exist
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️ Could not check for redeemable positions: {e}{Style.RESET_ALL}")
+
         except Exception as e:
-            print(f"{Fore.YELLOW}⚠️ Could not claim rewards: {e}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}⚠️ Error in rewards claiming: {e}{Style.RESET_ALL}")
+
