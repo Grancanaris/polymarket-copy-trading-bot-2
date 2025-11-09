@@ -296,11 +296,11 @@ class MarketFetcher:
                         if condition_id in seen_condition_ids:
                             continue
 
-                        # IMPORTANT: Don't apply keyword filter here since we already
-                        # filtered via API query parameter. The Gamma API returns markets
-                        # that match the keyword in various fields (tags, metadata, etc.),
-                        # not just the question text.
-                        market = self._parse_market(market_data, keywords_filter=None)
+                        # IMPORTANT: Use relaxed crypto filter instead of strict keyword match
+                        # The Gamma API query returns markets tagged with the keyword, but some
+                        # are false positives (politics/sports markets tagged with crypto keywords)
+                        # We use a crypto-relevance check instead of exact keyword matching
+                        market = self._parse_market(market_data, keywords_filter=None, crypto_filter=True)
                         if market:
                             self._enrich_with_orderbook(market)
                             all_markets.append(market)
@@ -490,13 +490,14 @@ class MarketFetcher:
             # Silently skip invalid markets
             return None
 
-    def _parse_market(self, market_data: Dict[str, Any], keywords_filter: List[str] = None) -> Optional[Market]:
+    def _parse_market(self, market_data: Dict[str, Any], keywords_filter: List[str] = None, crypto_filter: bool = False) -> Optional[Market]:
         """
         Parse raw market data into Market object
 
         Args:
             market_data: Raw market data from API
             keywords_filter: Optional list of keywords to filter markets (e.g., ['bitcoin', 'ethereum'])
+            crypto_filter: If True, apply crypto-relevance filter instead of strict keyword matching
 
         Returns:
             Market object or None if invalid
@@ -512,12 +513,45 @@ class MarketFetcher:
             if closed or not active:
                 return None
 
-            # Filter by keywords if provided
+            # Get question early for filtering
+            question = market_data.get('question', '').lower()
+            description = market_data.get('description', '').lower()
+            slug = market_data.get('slug', '').lower()
+
+            # Apply crypto-relevance filter for Gamma API results
+            if crypto_filter:
+                # Check if market is actually about crypto/blockchain
+                crypto_indicators = [
+                    # Cryptocurrencies
+                    'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'cryptocurrency',
+                    'solana', 'sol', 'cardano', 'ada', 'polygon', 'matic', 'dogecoin',
+                    'doge', 'xrp', 'ripple', 'litecoin', 'ltc', 'usdt', 'usdc', 'tether',
+                    # Crypto-specific terms
+                    'blockchain', 'defi', 'nft', 'token', 'coin', 'altcoin',
+                    'satoshi', 'mining', 'hash rate', 'proof of',
+                    # Price-related (when combined with crypto context)
+                    '$50k', '$100k', 'btc price', 'eth price', 'crypto price',
+                    # Exchanges and platforms
+                    'coinbase', 'binance', 'kraken', 'ftx', 'uniswap'
+                ]
+
+                # Check if question/description contains crypto indicators
+                has_crypto_indicator = any(
+                    indicator in question or indicator in description
+                    for indicator in crypto_indicators
+                )
+
+                if not has_crypto_indicator:
+                    # This is likely a false positive (politics/sports market tagged with crypto)
+                    if not hasattr(self, '_debug_non_crypto_filtered'):
+                        print(f"🔍 DEBUG: Filtered out non-crypto market: {market_data.get('question', '')[:80]}")
+                        self._debug_non_crypto_filtered = True
+                    return None
+
+            # Filter by keywords if provided (strict matching)
             # STRICTER FILTERING: Only match if keyword is in the question itself
             # This prevents false positives from metadata/tags
-            if keywords_filter:
-                question = market_data.get('question', '').lower()
-
+            elif keywords_filter:
                 # Check if any keyword is in the question (primary filter)
                 has_keyword_in_question = any(
                     keyword.lower() in question
@@ -526,9 +560,6 @@ class MarketFetcher:
 
                 # If not in question, check description and slug as fallback
                 if not has_keyword_in_question:
-                    description = market_data.get('description', '').lower()
-                    slug = market_data.get('slug', '').lower()
-
                     has_keyword_elsewhere = any(
                         keyword.lower() in description or keyword.lower() in slug
                         for keyword in keywords_filter
