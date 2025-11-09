@@ -141,6 +141,10 @@ class TradeExecutor:
                 print(f"{Fore.YELLOW}⚠️ Copy amount too small: ${copy_amount:.2f} (would need at least $0.50){Style.RESET_ALL}")
                 return True
 
+            # Round to 2 decimals for Polymarket precision requirements
+            # Taker amount (USDC amount) must have max 2 decimal places
+            copy_amount = round(copy_amount, 2)
+
             print(f"📈 Buying ${copy_amount:.2f} worth of {trade.outcome}")
 
             # OPTIMIZATION: Skip price checking for fastest execution
@@ -212,11 +216,12 @@ class TradeExecutor:
             except Exception as e:
                 print(f"{Fore.YELLOW}⚠️ Could not get orderbook, using trade price: {e}{Style.RESET_ALL}")
                 best_bid_price = trade.price
-            
-            # Round to reasonable precision
-            sell_amount_rounded = round(sell_amount, 2)
-            
-            print(f"📝 Creating LIMIT sell order: {sell_amount_rounded} shares at ${best_bid_price:.3f}")
+
+            # Round to Polymarket precision requirements
+            sell_amount_rounded = round(sell_amount, 2)  # Size: max 2 decimals
+            best_bid_price = round(best_bid_price, 4)    # Price: max 4 decimals
+
+            print(f"📝 Creating LIMIT sell order: {sell_amount_rounded} shares at ${best_bid_price:.4f}")
             
             # Import SELL constant
             from py_clob_client.order_builder.constants import SELL
@@ -285,18 +290,19 @@ class TradeExecutor:
                 print(f"{Fore.RED}❌ No bids available for merge{Style.RESET_ALL}")
                 return False
             
-            # Find best bid price
+            # Find best bid price and round to Polymarket precision
             best_bid_price = max(float(bid.price) for bid in orderbook.bids)
-            print(f"💰 Best bid price: ${best_bid_price:.3f}")
-            
+            best_bid_price = round(best_bid_price, 4)  # Price: max 4 decimals
+            print(f"💰 Best bid price: ${best_bid_price:.4f}")
+
             # Import SELL constant
             from py_clob_client.order_builder.constants import SELL
-            
+
             # Create limit sell order at best bid price
             order_args = OrderArgs(
                 token_id=trade.asset,
                 price=best_bid_price,
-                size=round(my_position.size * 0.999, 2),  # 99.9% to avoid rounding
+                size=round(my_position.size * 0.999, 2),  # Size: max 2 decimals
                 side=SELL
             )
             
