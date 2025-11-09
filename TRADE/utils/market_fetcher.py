@@ -177,6 +177,10 @@ class MarketFetcher:
         """
         Fetch markets matching keywords (e.g., 'bitcoin', 'ethereum')
 
+        Uses two strategies:
+        1. API query parameter (fast but may have false positives)
+        2. Local filtering (slower but more accurate)
+
         Args:
             keywords: List of keywords to search for
             limit: Maximum number of markets per keyword
@@ -187,6 +191,7 @@ class MarketFetcher:
         all_markets = []
         seen_condition_ids = set()
 
+        # Strategy 1: Use API query parameter for each keyword
         for keyword in keywords:
             try:
                 url = f"{self.gamma_api_url}/markets"
@@ -209,8 +214,10 @@ class MarketFetcher:
                     print(f"❌ Unexpected response format for '{keyword}': {type(markets_data)}")
                     continue
 
-                print(f"🔍 DEBUG: Received {len(markets_data)} markets for '{keyword}'")
+                print(f"🔍 DEBUG: API returned {len(markets_data)} markets for '{keyword}'")
 
+                # Count how many pass our filter
+                filtered_count = 0
                 for market_data in markets_data:
                     condition_id = market_data.get('conditionId')
 
@@ -218,20 +225,57 @@ class MarketFetcher:
                     if condition_id in seen_condition_ids:
                         continue
 
-                    # Try to parse market data
-                    # keywords parameter already ensures we only get relevant markets
+                    # Try to parse market data with strict filtering
                     market = self._parse_market(market_data, keywords_filter=keywords)
                     if market:
                         self._enrich_with_orderbook(market)
                         all_markets.append(market)
                         seen_condition_ids.add(condition_id)
+                        filtered_count += 1
+                        print(f"   ✅ Matched: {market.question[:60]}")
+
+                print(f"🔍 DEBUG: {filtered_count}/{len(markets_data)} markets passed filter for '{keyword}'")
 
             except Exception as e:
                 print(f"❌ Error fetching markets for '{keyword}': {e}")
                 import traceback
                 traceback.print_exc()
 
-        print(f"🔍 DEBUG: Total markets fetched: {len(all_markets)}")
+        # Strategy 2: If we got very few results, try fetching all active markets and filtering locally
+        if len(all_markets) < 5:
+            print(f"\n🔍 DEBUG: Only found {len(all_markets)} markets via API query. Trying local filtering...")
+            try:
+                url = f"{self.gamma_api_url}/markets"
+                params = {
+                    'closed': 'false',
+                    'limit': 100,  # Fetch more markets to filter locally
+                    'offset': 0
+                }
+
+                markets_data = self._make_request(url, params)
+
+                if markets_data and isinstance(markets_data, list):
+                    print(f"🔍 DEBUG: Fetched {len(markets_data)} markets for local filtering")
+
+                    for market_data in markets_data:
+                        condition_id = market_data.get('conditionId')
+
+                        # Skip duplicates
+                        if condition_id in seen_condition_ids:
+                            continue
+
+                        # Try to parse market data with keyword filter
+                        market = self._parse_market(market_data, keywords_filter=keywords)
+                        if market:
+                            self._enrich_with_orderbook(market)
+                            all_markets.append(market)
+                            seen_condition_ids.add(condition_id)
+                            print(f"   ✅ Found via local filter: {market.question[:60]}")
+
+            except Exception as e:
+                print(f"❌ Error in local filtering: {e}")
+
+        print(f"🔍 DEBUG: Total markets after all strategies: {len(all_markets)}")
         return all_markets
 
     def _parse_market(self, market_data: Dict[str, Any], keywords_filter: List[str] = None) -> Optional[Market]:
@@ -249,21 +293,37 @@ class MarketFetcher:
             import json
 
             # Filter by keywords if provided
+            # STRICTER FILTERING: Only match if keyword is in the question itself
+            # This prevents false positives from metadata/tags
             if keywords_filter:
                 question = market_data.get('question', '').lower()
-                description = market_data.get('description', '').lower()
-                slug = market_data.get('slug', '').lower()
 
-                # Check if any keyword is in question, description, or slug
-                has_keyword = any(
-                    keyword.lower() in question or
-                    keyword.lower() in description or
-                    keyword.lower() in slug
+                # Check if any keyword is in the question (primary filter)
+                has_keyword_in_question = any(
+                    keyword.lower() in question
                     for keyword in keywords_filter
                 )
 
-                if not has_keyword:
-                    return None  # Skip markets that don't match keywords
+                # If not in question, check description and slug as fallback
+                if not has_keyword_in_question:
+                    description = market_data.get('description', '').lower()
+                    slug = market_data.get('slug', '').lower()
+
+                    has_keyword_elsewhere = any(
+                        keyword.lower() in description or keyword.lower() in slug
+                        for keyword in keywords_filter
+                    )
+
+                    if not has_keyword_elsewhere:
+                        return None  # Skip markets that don't match keywords
+                    else:
+                        # Found in description/slug but not question
+                        # Add additional validation: question should be related to crypto/markets
+                        crypto_terms = ['price', 'value', 'market', 'trade', 'token', 'coin', 'crypto']
+                        has_market_context = any(term in question for term in crypto_terms)
+                        if not has_market_context:
+                            # Likely a false positive (keyword in metadata but market is unrelated)
+                            return None
 
             # First, try to get clobTokenIds (the actual token IDs for trading)
             # This field is often stringified JSON
