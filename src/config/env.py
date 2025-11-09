@@ -23,7 +23,7 @@ class Config:
     POLYMARKET_API_URL = 'https://data-api.polymarket.com'
     
     # Trading parameters
-    FETCH_INTERVAL = int(os.getenv('FETCH_INTERVAL', '5'))  # seconds
+    FETCH_INTERVAL = float(os.getenv('FETCH_INTERVAL', '0.1'))  # seconds
     TOO_OLD_TIMESTAMP = int(os.getenv('TOO_OLD_TIMESTAMP', '3600'))  # 1 hour
     RETRY_LIMIT = int(os.getenv('RETRY_LIMIT', '3'))
     

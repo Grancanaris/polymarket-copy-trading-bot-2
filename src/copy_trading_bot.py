@@ -6,6 +6,7 @@ from helpers.clob_client import create_clob_client
 from services.data_fetcher import DataFetcher
 from services.trade_monitor import TradeMonitor
 from services.trade_executor import TradeExecutor
+from services.rewards_claimer import RewardsClaimer
 from storage.local_storage import LocalStorage
 from colorama import Fore, Style, init
 
@@ -19,6 +20,7 @@ class CopyTradingBot:
         self.clob_client = None
         self.trade_monitor = None
         self.trade_executor = None
+        self.rewards_claimer = None
         
     def initialize(self):
         """Initialize the bot components"""
@@ -36,7 +38,8 @@ class CopyTradingBot:
         # Initialize services
         self.trade_monitor = TradeMonitor(self.storage, self.data_fetcher)
         self.trade_executor = TradeExecutor(self.clob_client, self.storage, self.data_fetcher)
-        
+        self.rewards_claimer = RewardsClaimer(self.clob_client)
+
         print(f"{Fore.GREEN}✅ Bot initialized successfully!{Style.RESET_ALL}")
     
     def start(self):
@@ -47,9 +50,11 @@ class CopyTradingBot:
             # Start monitoring and execution
             self.trade_monitor.start_monitoring()
             self.trade_executor.start_executing()
-            
+            self.rewards_claimer.start_claiming()
+
             print(f"{Fore.GREEN}🚀 Copy Trading Bot is now running!{Style.RESET_ALL}")
             print(f"{Fore.CYAN}📊 Monitoring trades from {Config.USER_ADDRESS}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}💰 Auto-claiming rewards every 5 minutes{Style.RESET_ALL}")
             print(f"{Fore.CYAN}💫 Press Ctrl+C to stop{Style.RESET_ALL}")
             
             # Keep the main thread alive
@@ -65,13 +70,16 @@ class CopyTradingBot:
     def stop(self):
         """Stop the copy trading bot"""
         print(f"\n{Fore.YELLOW}⏹ Stopping Copy Trading Bot...{Style.RESET_ALL}")
-        
+
         if self.trade_monitor:
             self.trade_monitor.stop_monitoring()
-        
+
         if self.trade_executor:
             self.trade_executor.stop_executing()
-        
+
+        if self.rewards_claimer:
+            self.rewards_claimer.stop_claiming()
+
         print(f"{Fore.GREEN}✅ Bot stopped successfully!{Style.RESET_ALL}")
         sys.exit(0)
 
