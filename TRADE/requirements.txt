@@ -1,0 +1,16 @@
+# Polymarket Scalping Bot Requirements
+
+# Polymarket API
+py-clob-client==0.18.0
+
+# Web3 for blockchain interactions
+web3>=6.0.0
+
+# Environment management
+python-dotenv>=1.0.0
+
+# Colored console output
+colorama>=0.4.6
+
+# HTTP requests
+requests>=2.31.0
