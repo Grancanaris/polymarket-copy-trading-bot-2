@@ -111,6 +111,22 @@ class MarketFetcher:
                 print(f"❌ Failed to fetch markets from CLOB API, trying Gamma API...")
                 return self._fetch_from_gamma_api(limit)
 
+            # Handle both list and dict responses from CLOB API
+            if isinstance(markets_data, dict):
+                print(f"🔍 DEBUG: CLOB API returned dict, extracting markets list...")
+                print(f"🔍 DEBUG: Dict keys: {list(markets_data.keys())}")
+
+                # Try different possible field names for markets list
+                if 'data' in markets_data:
+                    markets_data = markets_data['data']
+                elif 'markets' in markets_data:
+                    markets_data = markets_data['markets']
+                elif 'results' in markets_data:
+                    markets_data = markets_data['results']
+                else:
+                    print(f"❌ Could not find markets list in CLOB API response")
+                    return self._fetch_from_gamma_api(limit)
+
             if not isinstance(markets_data, list):
                 print(f"❌ Unexpected response format from CLOB API: {type(markets_data)}")
                 return self._fetch_from_gamma_api(limit)
@@ -214,6 +230,16 @@ class MarketFetcher:
         try:
             url = f"{self.clob_api_url}/markets"
             markets_data = self._make_request(url, params=None)
+
+            # Handle dict response from CLOB API
+            if markets_data and isinstance(markets_data, dict):
+                print(f"🔍 DEBUG: CLOB API returned dict, extracting markets list...")
+                if 'data' in markets_data:
+                    markets_data = markets_data['data']
+                elif 'markets' in markets_data:
+                    markets_data = markets_data['markets']
+                elif 'results' in markets_data:
+                    markets_data = markets_data['results']
 
             if markets_data and isinstance(markets_data, list):
                 print(f"🔍 DEBUG: Fetched {len(markets_data)} markets from CLOB API")
