@@ -130,12 +130,13 @@ class MarketFetcher:
                 print(f"🔍 DEBUG: First market keys: {list(markets_data[0].keys())}")
 
                 # Check for different possible token field names
-                possible_token_fields = ['tokens', 'clobTokenIds', 'tokenIds', 'outcomes', 'outcomePrices', 'markets']
+                possible_token_fields = ['tokens', 'clobTokenIds', 'clob_token_ids', 'tokenIds', 'outcomes', 'outcomePrices', 'outcome_prices', 'markets', 'events']
                 for field in possible_token_fields:
                     if field in markets_data[0]:
                         value = markets_data[0][field]
                         value_type = type(value).__name__
-                        print(f"🔍 DEBUG: Found field '{field}': type={value_type}, value={str(value)[:200]}")
+                        sample_value = str(value)[:200] if not isinstance(value, (dict, list)) or len(str(value)) < 200 else str(value)[:200]
+                        print(f"🔍 DEBUG: Found field '{field}': type={value_type}, value={sample_value}")
 
                         # Try to parse if it's a stringified JSON
                         if isinstance(value, str):
@@ -143,48 +144,21 @@ class MarketFetcher:
                                 import json
                                 parsed = json.loads(value)
                                 print(f"🔍 DEBUG: '{field}' is stringified JSON! Parsed type={type(parsed).__name__}, length={len(parsed) if isinstance(parsed, (list, dict)) else 'N/A'}")
+                                if isinstance(parsed, list) and len(parsed) > 0:
+                                    print(f"🔍 DEBUG: First element sample: {str(parsed[0])[:100]}")
                             except:
                                 pass
+                        elif isinstance(value, list) and len(value) > 0:
+                            print(f"🔍 DEBUG: First element in list: {str(value[0])[:100]}")
+                        elif isinstance(value, dict):
+                            print(f"🔍 DEBUG: Dict keys: {list(value.keys())[:10]}")
 
             for market_data in markets_data:
-                # Skip non-binary markets
-                tokens = market_data.get('tokens', [])
-
-                # If tokens is empty or wrong length, try alternative fields
-                if len(tokens) != 2:
-                    # Try clobTokenIds (may be stringified JSON)
-                    if 'clobTokenIds' in market_data:
-                        clob_tokens = market_data.get('clobTokenIds')
-                        if isinstance(clob_tokens, str):
-                            try:
-                                import json
-                                tokens = json.loads(clob_tokens)
-                            except:
-                                tokens = []
-                        else:
-                            tokens = clob_tokens if clob_tokens else []
-
-                    # Try outcomes field (may be a list of outcome names like ["Yes", "No"])
-                    elif 'outcomes' in market_data:
-                        outcomes = market_data.get('outcomes')
-                        if isinstance(outcomes, str):
-                            try:
-                                import json
-                                tokens = json.loads(outcomes)
-                            except:
-                                tokens = []
-                        elif isinstance(outcomes, list):
-                            tokens = outcomes
-                        else:
-                            tokens = []
-
-                if len(tokens) != 2:
-                    continue
-
-                # Parse market data
+                # Try to parse market data
+                # _parse_market will return None if it's not a valid binary market
                 market = self._parse_market(market_data)
                 if market:
-                    # Get orderbook data for this market
+                    # Get orderbook data for this market to get accurate prices
                     self._enrich_with_orderbook(market)
                     markets.append(market)
 
@@ -242,38 +216,7 @@ class MarketFetcher:
                     if condition_id in seen_condition_ids:
                         continue
 
-                    # Skip non-binary markets - try alternative field names
-                    tokens = market_data.get('tokens', [])
-
-                    if len(tokens) != 2:
-                        # Try clobTokenIds (may be stringified JSON)
-                        clob_tokens = market_data.get('clobTokenIds')
-                        if isinstance(clob_tokens, str):
-                            try:
-                                import json
-                                tokens = json.loads(clob_tokens)
-                            except:
-                                tokens = []
-                        elif clob_tokens:
-                            tokens = clob_tokens
-
-                    if len(tokens) != 2:
-                        # Try outcomes field
-                        outcomes = market_data.get('outcomes')
-                        if isinstance(outcomes, str):
-                            try:
-                                import json
-                                tokens = json.loads(outcomes)
-                            except:
-                                tokens = []
-                        elif isinstance(outcomes, list):
-                            tokens = outcomes
-                        else:
-                            tokens = []
-
-                    if len(tokens) != 2:
-                        continue
-
+                    # Try to parse market data
                     market = self._parse_market(market_data)
                     if market:
                         self._enrich_with_orderbook(market)
@@ -301,49 +244,110 @@ class MarketFetcher:
         try:
             import json
 
-            # Extract tokens - try multiple field names
-            tokens = market_data.get('tokens', [])
+            # First, try to get clobTokenIds (the actual token IDs for trading)
+            # This field is often stringified JSON
+            clob_token_ids = None
+            for field_name in ['clobTokenIds', 'clob_token_ids', 'tokenIds', 'token_ids']:
+                if field_name in market_data:
+                    value = market_data.get(field_name)
+                    if isinstance(value, str):
+                        try:
+                            clob_token_ids = json.loads(value)
+                            break
+                        except:
+                            pass
+                    elif isinstance(value, list) and len(value) == 2:
+                        clob_token_ids = value
+                        break
 
-            # Try clobTokenIds (may be stringified JSON)
-            if len(tokens) != 2:
-                clob_tokens = market_data.get('clobTokenIds')
-                if isinstance(clob_tokens, str):
-                    try:
-                        tokens = json.loads(clob_tokens)
-                    except:
-                        tokens = []
-                elif clob_tokens:
-                    tokens = clob_tokens if isinstance(clob_tokens, list) else []
-
-            # Try outcomes field (may be stringified JSON)
-            if len(tokens) != 2:
-                outcomes = market_data.get('outcomes')
-                if isinstance(outcomes, str):
-                    try:
-                        tokens = json.loads(outcomes)
-                    except:
-                        tokens = []
-                elif isinstance(outcomes, list):
-                    tokens = outcomes
-                else:
-                    tokens = []
-
-            if len(tokens) != 2:
-                return None
-
-            # Try to get outcome prices (may be stringified JSON)
+            # Get outcome prices (also often stringified JSON)
             prices = []
-            outcome_prices = market_data.get('outcomePrices')
-            if isinstance(outcome_prices, str):
-                try:
-                    prices = json.loads(outcome_prices)
-                except:
-                    prices = []
-            elif isinstance(outcome_prices, list):
-                prices = outcome_prices
+            for field_name in ['outcomePrices', 'outcome_prices', 'prices']:
+                if field_name in market_data:
+                    value = market_data.get(field_name)
+                    if isinstance(value, str):
+                        try:
+                            prices = json.loads(value)
+                            if isinstance(prices, list) and len(prices) == 2:
+                                break
+                        except:
+                            pass
+                    elif isinstance(value, list) and len(value) == 2:
+                        prices = value
+                        break
+
+            # Get outcomes (outcome names like ["Yes", "No"])
+            outcomes = None
+            for field_name in ['outcomes', 'outcome_names']:
+                if field_name in market_data:
+                    value = market_data.get(field_name)
+                    if isinstance(value, str):
+                        try:
+                            outcomes = json.loads(value)
+                            if isinstance(outcomes, list) and len(outcomes) == 2:
+                                break
+                        except:
+                            pass
+                    elif isinstance(value, list) and len(value) == 2:
+                        outcomes = value
+                        break
+
+            # Check if we have token IDs from the markets field (nested structure)
+            if not clob_token_ids and 'markets' in market_data:
+                markets_field = market_data.get('markets', [])
+                if isinstance(markets_field, list) and len(markets_field) > 0:
+                    # Extract token IDs from nested markets
+                    clob_token_ids = []
+                    for mkt in markets_field[:2]:  # Take first 2
+                        if isinstance(mkt, dict):
+                            token_id = mkt.get('clobTokenIds') or mkt.get('tokenId') or mkt.get('token_id')
+                            if token_id:
+                                clob_token_ids.append(token_id)
+
+            # Check events field for nested market data
+            if not clob_token_ids and 'events' in market_data:
+                events = market_data.get('events', [])
+                if isinstance(events, list) and len(events) > 0:
+                    event = events[0]
+                    if isinstance(event, dict) and 'markets' in event:
+                        event_markets = event.get('markets', [])
+                        if isinstance(event_markets, list) and len(event_markets) > 0:
+                            clob_token_ids = []
+                            for mkt in event_markets[:2]:
+                                if isinstance(mkt, dict):
+                                    token_id = mkt.get('clobTokenIds') or mkt.get('tokenId')
+                                    if isinstance(token_id, str):
+                                        try:
+                                            token_id = json.loads(token_id)
+                                        except:
+                                            pass
+                                    if token_id:
+                                        if isinstance(token_id, list):
+                                            clob_token_ids.extend(token_id)
+                                        else:
+                                            clob_token_ids.append(token_id)
+
+            # Debug: Print token structure for first market
+            if not hasattr(self, '_debug_printed'):
+                print(f"🔍 DEBUG: Outcomes: {outcomes}")
+                print(f"🔍 DEBUG: Clob Token IDs: {clob_token_ids}")
+                print(f"🔍 DEBUG: Prices: {prices}")
+                self._debug_printed = True
+
+            # Validate we have token IDs
+            if not clob_token_ids or len(clob_token_ids) != 2:
+                # Try to get tokens from top level
+                tokens = market_data.get('tokens', [])
+                if isinstance(tokens, list) and len(tokens) == 2:
+                    # Check if they are actual token IDs (long hex strings starting with 0x)
+                    if isinstance(tokens[0], str) and len(tokens[0]) > 20:
+                        clob_token_ids = tokens
+
+                if not clob_token_ids or len(clob_token_ids) != 2:
+                    return None
 
             # Parse end date
-            end_date_str = market_data.get('endDate', market_data.get('end_date_iso'))
+            end_date_str = market_data.get('endDate', market_data.get('end_date_iso', market_data.get('endDateIso')))
             if not end_date_str:
                 return None
 
@@ -352,63 +356,30 @@ class MarketFetcher:
             except:
                 return None
 
-            # Get token IDs - tokens might be outcome strings like ["Yes", "No"]
-            # while actual token IDs are in clobTokenIds
-            clob_token_ids = market_data.get('clobTokenIds')
-            if isinstance(clob_token_ids, str):
-                try:
-                    clob_token_ids = json.loads(clob_token_ids)
-                except:
-                    clob_token_ids = None
-
-            # Debug: Print token structure for first market
-            if not hasattr(self, '_debug_printed'):
-                print(f"🔍 DEBUG: Tokens: {tokens}")
-                print(f"🔍 DEBUG: Clob Token IDs: {clob_token_ids}")
-                print(f"🔍 DEBUG: Prices: {prices}")
-                self._debug_printed = True
-
-            # Determine token IDs and outcomes
-            token_0 = tokens[0]
-            token_1 = tokens[1]
-
             # Get actual token IDs
-            if clob_token_ids and len(clob_token_ids) == 2:
-                # Use clob token IDs if available
-                actual_token_id_0 = clob_token_ids[0]
-                actual_token_id_1 = clob_token_ids[1]
-            elif isinstance(token_0, str) and len(token_0) > 10:
-                # Tokens are already IDs (long hex strings)
-                actual_token_id_0 = token_0
-                actual_token_id_1 = token_1
-            elif isinstance(token_0, dict):
-                # Tokens are objects with metadata
-                actual_token_id_0 = token_0.get('token_id') or token_0.get('tokenId') or token_0.get('id')
-                actual_token_id_1 = token_1.get('token_id') or token_1.get('tokenId') or token_1.get('id')
-            else:
-                # Can't determine token IDs
-                return None
+            actual_token_id_0 = clob_token_ids[0]
+            actual_token_id_1 = clob_token_ids[1]
 
             # Get prices
             if prices and len(prices) == 2:
                 price_0 = float(prices[0])
                 price_1 = float(prices[1])
-            elif isinstance(token_0, dict) and 'price' in token_0:
-                price_0 = float(token_0.get('price', 0.5))
-                price_1 = float(token_1.get('price', 0.5))
             else:
                 # Try to get from top-level market data
-                price_0 = float(market_data.get('lastTradePrice', 0.5))
-                price_1 = 1.0 - price_0
+                last_price = market_data.get('lastTradePrice')
+                if last_price:
+                    price_0 = float(last_price)
+                    price_1 = 1.0 - price_0
+                else:
+                    # If no prices available, will fetch from orderbook later
+                    price_0 = 0.5
+                    price_1 = 0.5
 
             # Determine which is "Yes" (Up) and which is "No" (Down)
-            if isinstance(token_0, str):
-                # Check if it's an outcome string like "Yes"/"No"
-                outcome_0 = token_0.lower()
-                outcome_1 = token_1.lower()
-            elif isinstance(token_0, dict):
-                outcome_0 = token_0.get('outcome', '').lower()
-                outcome_1 = token_1.get('outcome', '').lower()
+            # Use outcomes array if available
+            if outcomes and len(outcomes) == 2:
+                outcome_0 = str(outcomes[0]).lower() if outcomes[0] else 'yes'
+                outcome_1 = str(outcomes[1]).lower() if outcomes[1] else 'no'
             else:
                 # Default: assume position 0 is Yes
                 outcome_0 = 'yes'
@@ -453,6 +424,7 @@ class MarketFetcher:
     def _enrich_with_orderbook(self, market: Market) -> None:
         """
         Fetch orderbook data and add to market
+        Also updates market prices if they weren't available from Gamma API
 
         Args:
             market: Market object to enrich with orderbook data
@@ -463,7 +435,7 @@ class MarketFetcher:
 
             # Get orderbook for Up token
             params_up = {'token_id': market.token_id_up}
-            response_up = requests.get(url, params=params_up, timeout=5)
+            response_up = requests.get(url, params=params_up, timeout=5, headers=self.headers)
 
             if response_up.status_code == 200:
                 book_up = response_up.json()
@@ -475,9 +447,17 @@ class MarketFetcher:
                 if asks:
                     market.best_ask_up = float(asks[0].get('price', 0))
 
+                # If price_up is default (0.5), use midpoint from orderbook
+                if market.price_up == 0.5 and market.best_bid_up and market.best_ask_up:
+                    market.price_up = (market.best_bid_up + market.best_ask_up) / 2.0
+                elif market.price_up == 0.5 and market.best_bid_up:
+                    market.price_up = market.best_bid_up
+                elif market.price_up == 0.5 and market.best_ask_up:
+                    market.price_up = market.best_ask_up
+
             # Get orderbook for Down token
             params_down = {'token_id': market.token_id_down}
-            response_down = requests.get(url, params=params_down, timeout=5)
+            response_down = requests.get(url, params=params_down, timeout=5, headers=self.headers)
 
             if response_down.status_code == 200:
                 book_down = response_down.json()
@@ -488,6 +468,14 @@ class MarketFetcher:
                     market.best_bid_down = float(bids[0].get('price', 0))
                 if asks:
                     market.best_ask_down = float(asks[0].get('price', 0))
+
+                # If price_down is default (0.5), use midpoint from orderbook
+                if market.price_down == 0.5 and market.best_bid_down and market.best_ask_down:
+                    market.price_down = (market.best_bid_down + market.best_ask_down) / 2.0
+                elif market.price_down == 0.5 and market.best_bid_down:
+                    market.price_down = market.best_bid_down
+                elif market.price_down == 0.5 and market.best_ask_down:
+                    market.price_down = market.best_ask_down
 
         except Exception as e:
             # Non-critical error, orderbook data is optional
