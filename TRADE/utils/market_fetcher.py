@@ -16,6 +16,13 @@ class MarketFetcher:
         self.gamma_api_url = ScalpingConfig.POLYMARKET_API_URL
         self.clob_api_url = ScalpingConfig.HOST
 
+        # Headers to avoid Cloudflare bot detection
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+
     def fetch_active_markets(self, limit: int = 50) -> List[Market]:
         """
         Fetch active markets from Polymarket
@@ -35,7 +42,7 @@ class MarketFetcher:
                 'offset': 0
             }
 
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, headers=self.headers, timeout=10)
             response.raise_for_status()
 
             markets_data = response.json()
@@ -83,7 +90,7 @@ class MarketFetcher:
                     'query': keyword  # Search by keyword
                 }
 
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(url, params=params, headers=self.headers, timeout=10)
                 response.raise_for_status()
 
                 markets_data = response.json()
@@ -231,7 +238,7 @@ class MarketFetcher:
         """
         try:
             url = f"{self.gamma_api_url}/markets/{condition_id}"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=10)
             response.raise_for_status()
 
             market_data = response.json()
