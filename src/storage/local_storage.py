@@ -68,3 +68,11 @@ class LocalStorage:
                     activity.bot_executed_time += 1
                 break
         self.save_activities(wallet_address, activities)
+
+    def clear_pending_trades(self, wallet_address: str):
+        """Mark all pending trades as executed to ignore old trades on startup"""
+        activities = self.load_activities(wallet_address)
+        for activity in activities:
+            if activity.type == 'TRADE' and not activity.bot_executed:
+                activity.bot_executed = True
+        self.save_activities(wallet_address, activities)

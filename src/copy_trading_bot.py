@@ -23,16 +23,21 @@ class CopyTradingBot:
     def initialize(self):
         """Initialize the bot components"""
         print(f"{Fore.BLUE}🤖 Initializing Polymarket Copy Trading Bot...{Style.RESET_ALL}")
-        
+
         # Check configuration
         print(f"🎯 Target trader: {Config.USER_ADDRESS}")
         print(f"👤 Your wallet: {Config.PROXY_WALLET}")
         print(f"⏱️ Fetch interval: {Config.FETCH_INTERVAL} seconds")
-        
+
+        # Clear old pending trades - only copy NEW trades from this point forward
+        print(f"{Fore.YELLOW}🧹 Clearing old pending trades...{Style.RESET_ALL}")
+        self.storage.clear_pending_trades(Config.USER_ADDRESS)
+        print(f"{Fore.GREEN}✅ Only new trades will be copied{Style.RESET_ALL}")
+
         # Create CLOB client
         print(f"{Fore.YELLOW}🔑 Setting up CLOB client...{Style.RESET_ALL}")
         self.clob_client = create_clob_client()
-        
+
         # Initialize services
         self.trade_monitor = TradeMonitor(self.storage, self.data_fetcher)
         self.trade_executor = TradeExecutor(self.clob_client, self.storage, self.data_fetcher)
