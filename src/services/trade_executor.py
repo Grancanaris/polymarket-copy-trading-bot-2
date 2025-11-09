@@ -143,19 +143,10 @@ class TradeExecutor:
 
             print(f"📈 Buying ${copy_amount:.2f} worth of {trade.outcome}")
 
-            # Get current market price
-            try:
-                current_price_data = self.clob_client.get_last_trade_price(trade.asset)
-                current_price = float(current_price_data.get('price', trade.price))
-            except:
-                current_price = trade.price
+            # OPTIMIZATION: Skip price checking for fastest execution
+            # In copy trading, speed is critical - we accept current market price
+            # to ensure we get filled before price moves further
 
-            # Check if price is reasonable (within 30% for fast-moving markets)
-            price_deviation = abs(current_price - trade.price) / trade.price
-            if price_deviation > 0.30:
-                print(f"{Fore.YELLOW}⚠️ Price moved too much ({price_deviation:.1%}). Original: ${trade.price:.3f}, Current: ${current_price:.3f}{Style.RESET_ALL}")
-                return True
-            
             # Create market buy order
             market_order_args = MarketOrderArgs(
                 token_id=trade.asset,
@@ -164,7 +155,8 @@ class TradeExecutor:
             )
 
             signed_order = self.clob_client.create_market_order(market_order_args)
-            response = self.clob_client.post_order(signed_order, OrderType.FOK)
+            # Use GTC (Good Till Cancel) instead of FOK for better fill rates in fast markets
+            response = self.clob_client.post_order(signed_order, OrderType.GTC)
             
             if response.get('success', False):
                 print(f"{Fore.GREEN}✅ Successfully bought ${copy_amount:.2f} worth{Style.RESET_ALL}")
@@ -239,9 +231,9 @@ class TradeExecutor:
             
             # Create and sign the order
             signed_order = self.clob_client.create_order(order_args)
-            
-            # Post as FOK (Fill Or Kill) - executes immediately or fails
-            response = self.clob_client.post_order(signed_order, OrderType.FOK)
+
+            # Use GTC for better fill rates in fast-moving markets
+            response = self.clob_client.post_order(signed_order, OrderType.GTC)
             
             if response.get('success', False):
                 print(f"{Fore.GREEN}✅ Successfully sold {sell_amount_rounded:.2f} shares at ${best_bid_price:.3f}{Style.RESET_ALL}")
@@ -263,7 +255,7 @@ class TradeExecutor:
                     )
                     
                     signed_order_retry = self.clob_client.create_order(order_args_retry)
-                    response_retry = self.clob_client.post_order(signed_order_retry, OrderType.FOK)
+                    response_retry = self.clob_client.post_order(signed_order_retry, OrderType.GTC)
                     
                     if response_retry.get('success', False):
                         print(f"{Fore.GREEN}✅ Successfully sold {retry_amount:.2f} shares on retry{Style.RESET_ALL}")
@@ -309,8 +301,8 @@ class TradeExecutor:
             )
             
             signed_order = self.clob_client.create_order(order_args)
-            response = self.clob_client.post_order(signed_order, OrderType.FOK)
-            
+            response = self.clob_client.post_order(signed_order, OrderType.GTC)
+
             if response.get('success', False):
                 print(f"{Fore.GREEN}✅ Successfully merged position{Style.RESET_ALL}")
                 return True
