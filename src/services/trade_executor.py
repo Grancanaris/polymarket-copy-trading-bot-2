@@ -136,6 +136,11 @@ class TradeExecutor:
             copy_amount = max(min_trade_size, copy_amount_proportional)
             copy_amount = min(copy_amount, my_balance * 0.2)  # Max 20% of balance per trade
 
+            # Check against user-defined maximum trade amount
+            if copy_amount > Config.MAX_TRADE_AMOUNT:
+                print(f"{Fore.YELLOW}⚠️ Trade amount ${copy_amount:.2f} exceeds max allowed ${Config.MAX_TRADE_AMOUNT:.2f} - skipping{Style.RESET_ALL}")
+                return True
+
             # Final minimum check
             if copy_amount < 0.5:
                 print(f"{Fore.YELLOW}⚠️ Copy amount too small: ${copy_amount:.2f} (would need at least $0.50){Style.RESET_ALL}")

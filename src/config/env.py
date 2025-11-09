@@ -26,6 +26,7 @@ class Config:
     FETCH_INTERVAL = float(os.getenv('FETCH_INTERVAL', '0.1'))  # seconds
     TOO_OLD_TIMESTAMP = int(os.getenv('TOO_OLD_TIMESTAMP', '3600'))  # 1 hour
     RETRY_LIMIT = int(os.getenv('RETRY_LIMIT', '3'))
+    MAX_TRADE_AMOUNT = float(os.getenv('MAX_TRADE_AMOUNT', '999999'))  # Max USDC per trade (default: no limit)
     
     # MongoDB (optional - fallback to local file storage)
     MONGO_URI = os.getenv('MONGO_URI')
