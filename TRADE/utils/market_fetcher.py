@@ -296,8 +296,11 @@ class MarketFetcher:
                         if condition_id in seen_condition_ids:
                             continue
 
-                        # Try to parse market data with strict filtering
-                        market = self._parse_market(market_data, keywords_filter=keywords)
+                        # IMPORTANT: Don't apply keyword filter here since we already
+                        # filtered via API query parameter. The Gamma API returns markets
+                        # that match the keyword in various fields (tags, metadata, etc.),
+                        # not just the question text.
+                        market = self._parse_market(market_data, keywords_filter=None)
                         if market:
                             self._enrich_with_orderbook(market)
                             all_markets.append(market)
@@ -330,6 +333,9 @@ class MarketFetcher:
             # Get condition_id - required field
             condition_id = market_data.get('condition_id') or market_data.get('conditionId')
             if not condition_id:
+                if not hasattr(self, '_debug_no_condition_id'):
+                    print(f"🔍 DEBUG: Filtering out market - no condition_id")
+                    self._debug_no_condition_id = True
                 return None
 
             # Filter out closed/inactive markets
@@ -338,6 +344,9 @@ class MarketFetcher:
             active = market_data.get('active', True)
 
             if closed or not active:
+                if not hasattr(self, '_debug_closed_markets'):
+                    print(f"🔍 DEBUG: Filtering out closed/inactive markets (closed={closed}, active={active})")
+                    self._debug_closed_markets = True
                 return None
 
             # Get question/description
@@ -348,21 +357,36 @@ class MarketFetcher:
                 question_lower = question.lower()
                 has_keyword = any(keyword.lower() in question_lower for keyword in keywords_filter)
                 if not has_keyword:
+                    if not hasattr(self, '_debug_no_keyword_match'):
+                        print(f"🔍 DEBUG: Filtering out market - no keyword match")
+                        print(f"   Question: {question[:100]}")
+                        print(f"   Looking for keywords: {keywords_filter[:5]}...")
+                        self._debug_no_keyword_match = True
                     return None
 
             # Get end date EARLY to filter out expired markets
             end_date_str = market_data.get('end_date_iso') or market_data.get('endDate') or market_data.get('end_date')
             if not end_date_str:
+                if not hasattr(self, '_debug_no_end_date'):
+                    print(f"🔍 DEBUG: Filtering out market - no end_date field")
+                    print(f"   Question: {question[:100]}")
+                    self._debug_no_end_date = True
                 return None
 
             try:
                 end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
             except:
+                if not hasattr(self, '_debug_invalid_end_date'):
+                    print(f"🔍 DEBUG: Filtering out market - invalid end_date format: {end_date_str}")
+                    self._debug_invalid_end_date = True
                 return None
 
             # Filter out markets that have already expired
             now = datetime.now(timezone.utc)
             if end_date <= now:
+                if not hasattr(self, '_debug_expired_markets'):
+                    print(f"🔍 DEBUG: Filtering out expired markets (end_date={end_date}, now={now})")
+                    self._debug_expired_markets = True
                 return None
 
             # Get tokens array - this should contain the token IDs
@@ -377,6 +401,11 @@ class MarketFetcher:
 
             # Validate we have exactly 2 tokens (binary market)
             if not isinstance(tokens, list) or len(tokens) != 2:
+                if not hasattr(self, '_debug_invalid_tokens'):
+                    print(f"🔍 DEBUG: Filtering out market - invalid tokens (not binary market)")
+                    print(f"   Question: {question[:100]}")
+                    print(f"   Tokens type: {type(tokens)}, length: {len(tokens) if isinstance(tokens, list) else 'N/A'}")
+                    self._debug_invalid_tokens = True
                 return None
 
             # Extract token IDs
@@ -404,6 +433,11 @@ class MarketFetcher:
 
             # Validate token IDs
             if not token_id_0 or not token_id_1:
+                if not hasattr(self, '_debug_missing_token_ids'):
+                    print(f"🔍 DEBUG: Filtering out market - missing token IDs")
+                    print(f"   Question: {question[:100]}")
+                    print(f"   token_id_0: {token_id_0}, token_id_1: {token_id_1}")
+                    self._debug_missing_token_ids = True
                 return None
 
             # Note: end_date already parsed and validated above (lines 353-366)
