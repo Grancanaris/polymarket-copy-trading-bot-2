@@ -31,6 +31,7 @@ from models.position import Position, PositionStatus
 from strategies.arbitrage import BinaryArbitrageStrategy
 from strategies.momentum import MomentumScalpingStrategy
 from strategies.mean_reversion import MeanReversionStrategy
+from utils.market_fetcher import MarketFetcher
 
 # Initialize colorama
 init()
@@ -42,6 +43,9 @@ class ScalpingBot:
         self.config = ScalpingConfig
         self.clob_client = None
         self.running = False
+
+        # Market data
+        self.market_fetcher = None
 
         # Strategies
         self.arbitrage_strategy = None
@@ -57,6 +61,10 @@ class ScalpingBot:
         self.total_trades = 0
         self.winning_trades = 0
         self.losing_trades = 0
+
+        # Tracking
+        self.scan_count = 0
+        self.last_status_print = time.time()
 
     def initialize(self):
         """Initialize bot components"""
@@ -81,6 +89,9 @@ class ScalpingBot:
         # Derive API credentials
         api_creds = self.clob_client.derive_api_key()
         self.clob_client.set_api_creds(api_creds)
+
+        # Initialize market fetcher
+        self.market_fetcher = MarketFetcher()
 
         # Initialize strategies
         print(f"{Fore.YELLOW}📊 Initializing strategies...{Style.RESET_ALL}")
@@ -131,21 +142,111 @@ class ScalpingBot:
 
     def _scan_and_trade(self):
         """Scan markets and execute strategies"""
-        # TODO: Implement market scanning via Polymarket API
-        # For now, this is a placeholder that would:
-        # 1. Fetch active hourly markets for BTC/ETH
-        # 2. Get orderbook data for each market
-        # 3. Check each strategy for opportunities
-        # 4. Execute trades
-        pass
+        self.scan_count += 1
+
+        # Print status every 100 scans (every 10 seconds at 0.1s interval)
+        if self.scan_count % 100 == 0:
+            elapsed = time.time() - self.last_status_print
+            scans_per_sec = 100 / elapsed
+            print(f"{Fore.CYAN}📊 Status: {self.scan_count} scans | "
+                  f"{scans_per_sec:.1f} scans/sec | "
+                  f"{len(self.open_positions)} open positions{Style.RESET_ALL}")
+            self.last_status_print = time.time()
+
+        try:
+            # Fetch markets based on configuration
+            if self.config.HOURLY_MARKETS_ONLY:
+                # Fetch markets for preferred keywords (bitcoin, ethereum, etc.)
+                markets = self.market_fetcher.fetch_markets_by_keywords(
+                    self.config.PREFERRED_MARKETS,
+                    limit=20
+                )
+
+                # Filter to only hourly markets
+                markets = [m for m in markets if m.is_hourly_market]
+            else:
+                # Fetch general active markets
+                markets = self.market_fetcher.fetch_active_markets(limit=50)
+
+            if not markets:
+                return
+
+            # Check each strategy for opportunities
+            for market in markets:
+                # Skip if we're at position limits
+                if len(self.open_positions) >= self.config.MAX_CONCURRENT_POSITIONS:
+                    break
+
+                # Check Binary Arbitrage Strategy
+                if self.arbitrage_strategy and self.arbitrage_strategy.detect_opportunity(market):
+                    pos_up, pos_down = self.arbitrage_strategy.execute(market)
+                    if pos_up and pos_down:
+                        self.open_positions.append(pos_up)
+                        self.open_positions.append(pos_down)
+                        self.total_trades += 2
+                        print(f"{Fore.GREEN}✅ Arbitrage trade executed on: {market.question[:60]}{Style.RESET_ALL}")
+                    continue  # Don't use other strategies on this market
+
+                # Check Momentum Strategy
+                if self.momentum_strategy:
+                    # Momentum strategy needs historical data to detect price changes
+                    # For now, skip until we implement price tracking
+                    pass
+
+                # Check Mean Reversion Strategy
+                if self.mean_reversion_strategy:
+                    # Check if market is at extreme levels
+                    if market.is_extreme_up or market.is_extreme_down:
+                        # Mean reversion strategy would execute here
+                        # For now, just log the opportunity
+                        if self.scan_count % 100 == 0:  # Log every 100 scans to avoid spam
+                            print(f"{Fore.YELLOW}💡 Mean reversion opportunity: {market.question[:50]} "
+                                  f"(Up: {market.price_up:.2%}){Style.RESET_ALL}")
+
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error in _scan_and_trade: {e}{Style.RESET_ALL}")
+            import traceback
+            traceback.print_exc()
 
     def _manage_positions(self):
         """Manage open positions (check exits, update prices)"""
+        if not self.open_positions:
+            return
+
         for position in self.open_positions[:]:  # Copy list to allow removal
-            # TODO: Fetch current market data
-            # TODO: Check if position should be exited
-            # TODO: Execute exit if needed
-            pass
+            try:
+                # Fetch current market data
+                market = self.market_fetcher.get_market_by_condition_id(position.condition_id)
+                if not market:
+                    continue
+
+                # Update current price based on side
+                if position.side.value == "UP":
+                    position.current_price = market.price_up
+                else:
+                    position.current_price = market.price_down
+
+                # Check if position should be closed based on strategy
+                should_close = False
+
+                if position.strategy.value == "ARBITRAGE":
+                    # Arbitrage positions typically held until expiry
+                    should_close = self.arbitrage_strategy.should_close(position)
+                elif position.strategy.value == "MOMENTUM":
+                    # Check stop loss and take profit
+                    if self.momentum_strategy:
+                        should_close = self.momentum_strategy.should_close(position)
+                elif position.strategy.value == "MEAN_REVERSION":
+                    # Check if reverted to mean
+                    if self.mean_reversion_strategy:
+                        should_close = self.mean_reversion_strategy.should_close(position)
+
+                # Close position if needed
+                if should_close:
+                    self._close_position(position)
+
+            except Exception as e:
+                print(f"{Fore.RED}❌ Error managing position {position.position_id}: {e}{Style.RESET_ALL}")
 
     def _check_risk_limits(self):
         """Check and enforce risk management limits"""
@@ -163,6 +264,60 @@ class ScalpingBot:
         total_exposure = sum(p.entry_usdc for p in self.open_positions)
         if total_exposure >= self.config.MAX_TOTAL_EXPOSURE:
             print(f"{Fore.YELLOW}⚠️  Max total exposure reached (${total_exposure:.2f}){Style.RESET_ALL}")
+
+    def _close_position(self, position: Position):
+        """
+        Close a position by selling it
+
+        Args:
+            position: Position to close
+        """
+        try:
+            from py_clob_client.clob_types import OrderArgs, OrderType
+            from py_clob_client.order_builder.constants import SELL
+
+            # Calculate exit details
+            exit_price = position.current_price
+            pnl = (exit_price - position.entry_price) * position.entry_size
+
+            print(f"{Fore.YELLOW}📤 Closing position: {position.token_id[:8]}... | "
+                  f"Entry: ${position.entry_price:.4f} | Exit: ${exit_price:.4f} | "
+                  f"P&L: ${pnl:+.2f}{Style.RESET_ALL}")
+
+            # Create sell order
+            order_args = OrderArgs(
+                token_id=position.token_id,
+                price=round(exit_price * 0.998, 4),  # Slightly below market for quick fill
+                size=round(position.entry_size, 2),
+                side=SELL
+            )
+
+            signed_order = self.clob_client.create_order(order_args)
+            response = self.clob_client.post_order(signed_order, OrderType.GTC)
+
+            if response.get('success', False):
+                # Update position
+                position.status = PositionStatus.CLOSED
+                position.exit_time = datetime.now(timezone.utc)
+                position.exit_price = exit_price
+
+                # Remove from open positions
+                self.open_positions.remove(position)
+                self.closed_positions.append(position)
+
+                # Update stats
+                self.total_pnl += pnl
+                if pnl > 0:
+                    self.winning_trades += 1
+                    print(f"   {Fore.GREEN}✅ Position closed with profit: ${pnl:+.2f}{Style.RESET_ALL}")
+                else:
+                    self.losing_trades += 1
+                    print(f"   {Fore.RED}❌ Position closed with loss: ${pnl:+.2f}{Style.RESET_ALL}")
+            else:
+                print(f"   {Fore.RED}❌ Failed to close position: {response}{Style.RESET_ALL}")
+
+        except Exception as e:
+            print(f"   {Fore.RED}❌ Error closing position: {e}{Style.RESET_ALL}")
 
     def _print_stats(self):
         """Print performance statistics"""
