@@ -156,7 +156,9 @@ class MarketFetcher:
             for market_data in markets_data:
                 # Try to parse market data
                 # _parse_market will return None if it's not a valid binary market
-                market = self._parse_market(market_data)
+                # Pass crypto keywords filter if configured
+                keywords = ScalpingConfig.PREFERRED_MARKETS if ScalpingConfig.HOURLY_MARKETS_ONLY else None
+                market = self._parse_market(market_data, keywords_filter=keywords)
                 if market:
                     # Get orderbook data for this market to get accurate prices
                     self._enrich_with_orderbook(market)
@@ -217,7 +219,8 @@ class MarketFetcher:
                         continue
 
                     # Try to parse market data
-                    market = self._parse_market(market_data)
+                    # keywords parameter already ensures we only get relevant markets
+                    market = self._parse_market(market_data, keywords_filter=keywords)
                     if market:
                         self._enrich_with_orderbook(market)
                         all_markets.append(market)
@@ -231,18 +234,36 @@ class MarketFetcher:
         print(f"🔍 DEBUG: Total markets fetched: {len(all_markets)}")
         return all_markets
 
-    def _parse_market(self, market_data: Dict[str, Any]) -> Optional[Market]:
+    def _parse_market(self, market_data: Dict[str, Any], keywords_filter: List[str] = None) -> Optional[Market]:
         """
         Parse raw market data into Market object
 
         Args:
             market_data: Raw market data from API
+            keywords_filter: Optional list of keywords to filter markets (e.g., ['bitcoin', 'ethereum'])
 
         Returns:
             Market object or None if invalid
         """
         try:
             import json
+
+            # Filter by keywords if provided
+            if keywords_filter:
+                question = market_data.get('question', '').lower()
+                description = market_data.get('description', '').lower()
+                slug = market_data.get('slug', '').lower()
+
+                # Check if any keyword is in question, description, or slug
+                has_keyword = any(
+                    keyword.lower() in question or
+                    keyword.lower() in description or
+                    keyword.lower() in slug
+                    for keyword in keywords_filter
+                )
+
+                if not has_keyword:
+                    return None  # Skip markets that don't match keywords
 
             # First, try to get clobTokenIds (the actual token IDs for trading)
             # This field is often stringified JSON
@@ -336,14 +357,41 @@ class MarketFetcher:
 
             # Validate we have token IDs
             if not clob_token_ids or len(clob_token_ids) != 2:
-                # Try to get tokens from top level
+                # Try to get tokens from top level in various formats
                 tokens = market_data.get('tokens', [])
+
+                # Case 1: List of token objects with 'token_id' field
                 if isinstance(tokens, list) and len(tokens) == 2:
-                    # Check if they are actual token IDs (long hex strings starting with 0x)
-                    if isinstance(tokens[0], str) and len(tokens[0]) > 20:
+                    if isinstance(tokens[0], dict):
+                        # Extract token_id from each object
+                        token_ids = []
+                        for token in tokens:
+                            token_id = token.get('token_id') or token.get('tokenId') or token.get('id')
+                            if token_id:
+                                token_ids.append(token_id)
+                        if len(token_ids) == 2:
+                            clob_token_ids = token_ids
+                    # Case 2: List of token ID strings
+                    elif isinstance(tokens[0], str) and len(tokens[0]) > 20:
                         clob_token_ids = tokens
 
+                # Try stringified tokens field
                 if not clob_token_ids or len(clob_token_ids) != 2:
+                    tokens_str = market_data.get('tokens')
+                    if isinstance(tokens_str, str):
+                        try:
+                            tokens_parsed = json.loads(tokens_str)
+                            if isinstance(tokens_parsed, list) and len(tokens_parsed) == 2:
+                                clob_token_ids = tokens_parsed
+                        except:
+                            pass
+
+                # If still no tokens, this is not a valid binary market
+                if not clob_token_ids or len(clob_token_ids) != 2:
+                    if not hasattr(self, '_debug_no_tokens_printed'):
+                        print(f"❌ No valid token IDs found for market: {market_data.get('question', 'Unknown')[:50]}")
+                        print(f"   Available fields: {list(market_data.keys())[:20]}")
+                        self._debug_no_tokens_printed = True
                     return None
 
             # Parse end date
@@ -497,7 +545,8 @@ class MarketFetcher:
             response.raise_for_status()
 
             market_data = response.json()
-            market = self._parse_market(market_data)
+            # Don't apply keyword filter when fetching specific market by ID
+            market = self._parse_market(market_data, keywords_filter=None)
 
             if market:
                 self._enrich_with_orderbook(market)

@@ -49,7 +49,9 @@ class ScalpingConfig:
     MM_ORDER_SIZE = int(os.getenv('MM_ORDER_SIZE', '10'))
 
     # Market selection
-    PREFERRED_MARKETS = os.getenv('PREFERRED_MARKETS', 'bitcoin,ethereum').split(',')
+    # Expanded crypto keywords to catch more crypto-related markets
+    default_keywords = 'bitcoin,ethereum,btc,eth,crypto,cryptocurrency,solana,cardano,polygon,matic'
+    PREFERRED_MARKETS = os.getenv('PREFERRED_MARKETS', default_keywords).split(',')
     HOURLY_MARKETS_ONLY = os.getenv('HOURLY_MARKETS_ONLY', 'true').lower() == 'true'
     MAX_DAYS_TO_EXPIRY = int(os.getenv('MAX_DAYS_TO_EXPIRY', '1'))
 
