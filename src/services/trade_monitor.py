@@ -86,33 +86,59 @@ class TradeMonitor:
             # Fetch latest activities
             activities = self.data_fetcher.fetch_user_activities(self.target_wallet)
 
+            if not activities:
+                return
+
             # Filter for new trades only
-            new_activities = [
-                activity for activity in activities
-                if (activity.id not in self.known_activities and
-                    activity.type == 'TRADE' and
-                    time.time() - activity.timestamp < Config.TOO_OLD_TIMESTAMP and
-                    not self._should_skip_trade(activity))
-            ]
-            
+            new_activities = []
+            unknown_count = 0
+            for activity in activities:
+                # Check if already known
+                if activity.id in self.known_activities:
+                    continue
+
+                unknown_count += 1
+
+                # Check if it's a trade
+                if activity.type != 'TRADE':
+                    print(f"{Fore.YELLOW}⏭️ Skipping non-trade activity: {activity.type}{Style.RESET_ALL}")
+                    continue
+
+                # Check if too old
+                age_seconds = time.time() - activity.timestamp
+                if age_seconds >= Config.TOO_OLD_TIMESTAMP:
+                    print(f"{Fore.YELLOW}⏭️ Skipping old trade ({age_seconds:.0f}s old, max {Config.TOO_OLD_TIMESTAMP}s): {activity.title}{Style.RESET_ALL}")
+                    continue
+
+                # Check if market ends too far in future
+                if self._should_skip_trade(activity):
+                    continue
+
+                # This is a valid new trade
+                new_activities.append(activity)
+
+            # Debug: show what we found
+            if unknown_count > 0:
+                print(f"{Fore.CYAN}📡 Found {unknown_count} unknown activities (fetched {len(activities)} total){Style.RESET_ALL}")
+
             if new_activities:
                 print(f"{Fore.CYAN}🔍 Found {len(new_activities)} new trades to copy{Style.RESET_ALL}")
-                
+
                 # Load existing activities and add new ones
                 all_activities = self.storage.load_activities(self.target_wallet)
                 all_activities.extend(new_activities)
-                
+
                 # Save updated activities
                 self.storage.save_activities(self.target_wallet, all_activities)
-                
+
                 # Update known activities
                 for activity in new_activities:
                     self.known_activities.add(activity.id)
-                    
+
                 # Print trade details
                 for activity in new_activities:
                     self._print_trade_info(activity)
-                    
+
         except Exception as e:
             print(f"{Fore.RED}❌ Error checking for trades: {e}{Style.RESET_ALL}")
     
