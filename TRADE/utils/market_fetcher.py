@@ -332,6 +332,14 @@ class MarketFetcher:
             if not condition_id:
                 return None
 
+            # Filter out closed/inactive markets
+            # Check for 'closed' or 'active' fields
+            closed = market_data.get('closed', False)
+            active = market_data.get('active', True)
+
+            if closed or not active:
+                return None
+
             # Get question/description
             question = market_data.get('question') or market_data.get('description', 'Unknown')
 
@@ -341,6 +349,21 @@ class MarketFetcher:
                 has_keyword = any(keyword.lower() in question_lower for keyword in keywords_filter)
                 if not has_keyword:
                     return None
+
+            # Get end date EARLY to filter out expired markets
+            end_date_str = market_data.get('end_date_iso') or market_data.get('endDate') or market_data.get('end_date')
+            if not end_date_str:
+                return None
+
+            try:
+                end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+            except:
+                return None
+
+            # Filter out markets that have already expired
+            now = datetime.now(timezone.utc)
+            if end_date <= now:
+                return None
 
             # Get tokens array - this should contain the token IDs
             tokens = market_data.get('tokens', [])
@@ -383,15 +406,7 @@ class MarketFetcher:
             if not token_id_0 or not token_id_1:
                 return None
 
-            # Get end date
-            end_date_str = market_data.get('end_date_iso') or market_data.get('endDate') or market_data.get('end_date')
-            if not end_date_str:
-                return None
-
-            try:
-                end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
-            except:
-                return None
+            # Note: end_date already parsed and validated above (lines 353-366)
 
             # Get prices if available
             price_0 = 0.5
@@ -454,6 +469,14 @@ class MarketFetcher:
         """
         try:
             import json
+
+            # Filter out closed/inactive markets
+            # Check for 'closed' or 'active' fields
+            closed = market_data.get('closed', False)
+            active = market_data.get('active', True)
+
+            if closed or not active:
+                return None
 
             # Filter by keywords if provided
             # STRICTER FILTERING: Only match if keyword is in the question itself
@@ -625,6 +648,11 @@ class MarketFetcher:
             try:
                 end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
             except:
+                return None
+
+            # Filter out markets that have already expired
+            now = datetime.now(timezone.utc)
+            if end_date <= now:
                 return None
 
             # Get actual token IDs
