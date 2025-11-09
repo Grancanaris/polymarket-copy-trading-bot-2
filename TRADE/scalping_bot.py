@@ -153,6 +153,9 @@ class ScalpingBot:
                   f"{len(self.open_positions)} open positions{Style.RESET_ALL}")
             self.last_status_print = time.time()
 
+            # Debug: Show if we're finding markets
+            debug_market_count = 0
+
         try:
             # Fetch markets based on configuration
             if self.config.HOURLY_MARKETS_ONLY:
@@ -169,7 +172,22 @@ class ScalpingBot:
                 markets = self.market_fetcher.fetch_active_markets(limit=50)
 
             if not markets:
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.YELLOW}⚠️  No markets found!{Style.RESET_ALL}")
                 return
+
+            # Debug logging for first scan in each batch
+            if self.scan_count % 100 == 0:
+                print(f"{Fore.BLUE}🔍 Found {len(markets)} markets to scan{Style.RESET_ALL}")
+
+                # Show a sample market
+                if len(markets) > 0:
+                    m = markets[0]
+                    print(f"   Sample: {m.question[:50]}")
+                    print(f"   Prices: Up=${m.price_up:.3f} Down=${m.price_down:.3f} Sum=${m.price_up+m.price_down:.3f}")
+                    print(f"   Arb opportunity: {m.is_arbitrage_opportunity} (profit: ${m.arbitrage_profit:.4f})")
+                    print(f"   Extreme: Up={m.is_extreme_up} Down={m.is_extreme_down}")
+                    print(f"   Hourly: {m.is_hourly_market} (expires in {m.hours_to_expiry:.1f}h)")
 
             # Check each strategy for opportunities
             for market in markets:
@@ -189,19 +207,22 @@ class ScalpingBot:
 
                 # Check Momentum Strategy
                 if self.momentum_strategy:
-                    # Momentum strategy needs historical data to detect price changes
-                    # For now, skip until we implement price tracking
-                    pass
+                    side = self.momentum_strategy.detect_entry(market)
+                    if side:
+                        position = self.momentum_strategy.execute_entry(market, side)
+                        if position:
+                            self.open_positions.append(position)
+                            self.total_trades += 1
+                        continue  # Don't use other strategies on this market
 
                 # Check Mean Reversion Strategy
                 if self.mean_reversion_strategy:
-                    # Check if market is at extreme levels
-                    if market.is_extreme_up or market.is_extreme_down:
-                        # Mean reversion strategy would execute here
-                        # For now, just log the opportunity
-                        if self.scan_count % 100 == 0:  # Log every 100 scans to avoid spam
-                            print(f"{Fore.YELLOW}💡 Mean reversion opportunity: {market.question[:50]} "
-                                  f"(Up: {market.price_up:.2%}){Style.RESET_ALL}")
+                    side = self.mean_reversion_strategy.detect_entry(market)
+                    if side:
+                        position = self.mean_reversion_strategy.execute_entry(market, side)
+                        if position:
+                            self.open_positions.append(position)
+                            self.total_trades += 1
 
         except Exception as e:
             print(f"{Fore.RED}❌ Error in _scan_and_trade: {e}{Style.RESET_ALL}")
@@ -235,11 +256,11 @@ class ScalpingBot:
                 elif position.strategy.value == "MOMENTUM":
                     # Check stop loss and take profit
                     if self.momentum_strategy:
-                        should_close = self.momentum_strategy.should_close(position)
+                        should_close = self.momentum_strategy.should_exit(position, market)
                 elif position.strategy.value == "MEAN_REVERSION":
                     # Check if reverted to mean
                     if self.mean_reversion_strategy:
-                        should_close = self.mean_reversion_strategy.should_close(position)
+                        should_close = self.mean_reversion_strategy.should_exit(position, market)
 
                 # Close position if needed
                 if should_close:
