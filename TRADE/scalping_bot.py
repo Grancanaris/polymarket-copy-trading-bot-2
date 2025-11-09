@@ -184,8 +184,17 @@ class ScalpingBot:
 
                 markets = hourly_markets
             else:
-                # Fetch general active markets
-                markets = self.market_fetcher.fetch_active_markets(limit=50)
+                # Fetch crypto markets without hourly filter
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.BLUE}🔍 DEBUG: HOURLY_MARKETS_ONLY=False, fetching crypto keywords: {self.config.PREFERRED_MARKETS}{Style.RESET_ALL}")
+
+                markets = self.market_fetcher.fetch_markets_by_keywords(
+                    self.config.PREFERRED_MARKETS,
+                    limit=100
+                )
+
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.BLUE}🔍 DEBUG: Fetched {len(markets)} crypto markets (no hourly filter){Style.RESET_ALL}")
 
             if not markets:
                 if self.scan_count % 100 == 0:

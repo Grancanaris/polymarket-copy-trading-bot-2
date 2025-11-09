@@ -147,8 +147,8 @@ class MarketFetcher:
                         print(f"🔍 DEBUG: First token: {tokens_value[0]}")
 
             for market_data in markets_data:
-                # Filter by keywords if configured
-                keywords = ScalpingConfig.PREFERRED_MARKETS if ScalpingConfig.HOURLY_MARKETS_ONLY else None
+                # Always filter by crypto keywords to avoid fetching sports/politics markets
+                keywords = ScalpingConfig.PREFERRED_MARKETS
                 market = self._parse_clob_market(market_data, keywords_filter=keywords)
                 if market:
                     # Get orderbook data for this market to get accurate prices
@@ -194,7 +194,8 @@ class MarketFetcher:
 
             markets = []
             for market_data in markets_data:
-                keywords = ScalpingConfig.PREFERRED_MARKETS if ScalpingConfig.HOURLY_MARKETS_ONLY else None
+                # Always filter by crypto keywords to avoid fetching sports/politics markets
+                keywords = ScalpingConfig.PREFERRED_MARKETS
                 market = self._parse_market(market_data, keywords_filter=keywords)
                 if market:
                     self._enrich_with_orderbook(market)
