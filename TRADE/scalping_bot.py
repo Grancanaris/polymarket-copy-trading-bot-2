@@ -160,13 +160,29 @@ class ScalpingBot:
             # Fetch markets based on configuration
             if self.config.HOURLY_MARKETS_ONLY:
                 # Fetch markets for preferred keywords (bitcoin, ethereum, etc.)
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.BLUE}🔍 DEBUG: HOURLY_MARKETS_ONLY=True, fetching keywords: {self.config.PREFERRED_MARKETS}{Style.RESET_ALL}")
+
                 markets = self.market_fetcher.fetch_markets_by_keywords(
                     self.config.PREFERRED_MARKETS,
                     limit=20
                 )
 
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.BLUE}🔍 DEBUG: Fetched {len(markets)} markets before hourly filter{Style.RESET_ALL}")
+
                 # Filter to only hourly markets
-                markets = [m for m in markets if m.is_hourly_market]
+                hourly_markets = [m for m in markets if m.is_hourly_market]
+
+                if self.scan_count % 100 == 0:
+                    print(f"{Fore.BLUE}🔍 DEBUG: {len(hourly_markets)} markets after hourly filter (<=1.5h to expiry){Style.RESET_ALL}")
+                    if len(markets) > 0 and len(hourly_markets) == 0:
+                        # Show why markets were filtered out
+                        print(f"{Fore.BLUE}🔍 DEBUG: Markets filtered out - expiry times:{Style.RESET_ALL}")
+                        for m in markets[:3]:  # Show first 3
+                            print(f"   - {m.question[:50]}... expires in {m.hours_to_expiry:.1f}h")
+
+                markets = hourly_markets
             else:
                 # Fetch general active markets
                 markets = self.market_fetcher.fetch_active_markets(limit=50)
