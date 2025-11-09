@@ -125,9 +125,29 @@ class MarketFetcher:
 
             markets = []
 
+            # Debug: Print first market structure
+            if markets_data and len(markets_data) > 0:
+                print(f"🔍 DEBUG: First market keys: {list(markets_data[0].keys())}")
+
+                # Check for different possible token field names
+                possible_token_fields = ['tokens', 'clobTokenIds', 'tokenIds', 'outcomes', 'markets']
+                for field in possible_token_fields:
+                    if field in markets_data[0]:
+                        value = markets_data[0][field]
+                        print(f"🔍 DEBUG: Found field '{field}': type={type(value).__name__}, length={len(value) if isinstance(value, (list, dict)) else 'N/A'}")
+                        if isinstance(value, list) and len(value) > 0:
+                            print(f"🔍 DEBUG: First item in '{field}': {value[0]}")
+
             for market_data in markets_data:
                 # Skip non-binary markets
                 tokens = market_data.get('tokens', [])
+                if len(tokens) != 2:
+                    # Try alternative field names
+                    if 'clobTokenIds' in market_data:
+                        tokens = market_data.get('clobTokenIds', [])
+                    elif 'outcomes' in market_data:
+                        tokens = market_data.get('outcomes', [])
+
                 if len(tokens) != 2:
                     continue
 
@@ -192,8 +212,13 @@ class MarketFetcher:
                     if condition_id in seen_condition_ids:
                         continue
 
-                    # Skip non-binary markets
-                    if len(market_data.get('tokens', [])) != 2:
+                    # Skip non-binary markets - try alternative field names
+                    tokens = market_data.get('tokens', [])
+                    if len(tokens) != 2:
+                        tokens = market_data.get('clobTokenIds', [])
+                    if len(tokens) != 2:
+                        tokens = market_data.get('outcomes', [])
+                    if len(tokens) != 2:
                         continue
 
                     market = self._parse_market(market_data)
@@ -221,8 +246,13 @@ class MarketFetcher:
             Market object or None if invalid
         """
         try:
-            # Extract tokens
+            # Extract tokens - try multiple field names
             tokens = market_data.get('tokens', [])
+            if len(tokens) != 2:
+                # Try alternative field names
+                tokens = market_data.get('clobTokenIds', [])
+            if len(tokens) != 2:
+                tokens = market_data.get('outcomes', [])
             if len(tokens) != 2:
                 return None
 
@@ -240,22 +270,45 @@ class MarketFetcher:
             token_0 = tokens[0]
             token_1 = tokens[1]
 
-            # Determine which is "Up" (Yes) and which is "Down" (No)
-            # Usually outcome "Yes" has higher price when market is bullish
-            outcome_0 = token_0.get('outcome', '').lower()
-            outcome_1 = token_1.get('outcome', '').lower()
+            # Debug: Print token structure for first market
+            if not hasattr(self, '_debug_printed'):
+                print(f"🔍 DEBUG: Token 0 structure: {token_0}")
+                print(f"🔍 DEBUG: Token 1 structure: {token_1}")
+                self._debug_printed = True
 
-            # Map outcomes to Up/Down
-            if 'yes' in outcome_0 or 'up' in outcome_0 or 'higher' in outcome_0:
-                token_id_up = token_0.get('token_id')
-                price_up = float(token_0.get('price', 0.5))
-                token_id_down = token_1.get('token_id')
-                price_down = float(token_1.get('price', 0.5))
+            # Handle both dict and string tokens
+            if isinstance(token_0, str):
+                # Tokens are just IDs, we'll need to get outcome from elsewhere
+                print(f"🔍 DEBUG: Tokens are strings (IDs only): {token_0}, {token_1}")
+                # In this case, we can't determine outcome from tokens alone
+                # Use market data or default to position-based assignment
+                token_id_up = token_0
+                token_id_down = token_1
+                # Try to get prices from market data
+                price_up = 0.5
+                price_down = 0.5
             else:
-                token_id_up = token_1.get('token_id')
-                price_up = float(token_1.get('price', 0.5))
-                token_id_down = token_0.get('token_id')
-                price_down = float(token_0.get('price', 0.5))
+                # Tokens are objects with metadata
+                # Determine which is "Up" (Yes) and which is "Down" (No)
+                outcome_0 = token_0.get('outcome', '').lower()
+                outcome_1 = token_1.get('outcome', '').lower()
+
+                # Map outcomes to Up/Down
+                if 'yes' in outcome_0 or 'up' in outcome_0 or 'higher' in outcome_0:
+                    token_id_up = token_0.get('token_id') or token_0.get('tokenId') or token_0.get('id')
+                    price_up = float(token_0.get('price', 0.5))
+                    token_id_down = token_1.get('token_id') or token_1.get('tokenId') or token_1.get('id')
+                    price_down = float(token_1.get('price', 0.5))
+                else:
+                    token_id_up = token_1.get('token_id') or token_1.get('tokenId') or token_1.get('id')
+                    price_up = float(token_1.get('price', 0.5))
+                    token_id_down = token_0.get('token_id') or token_0.get('tokenId') or token_0.get('id')
+                    price_down = float(token_0.get('price', 0.5))
+
+            # Validate token IDs exist
+            if not token_id_up or not token_id_down:
+                print(f"❌ Missing token IDs for market: {market_data.get('question', 'Unknown')[:50]}")
+                return None
 
             market = Market(
                 condition_id=market_data.get('conditionId'),
