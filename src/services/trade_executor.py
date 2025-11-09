@@ -56,7 +56,7 @@ class TradeExecutor:
                                 False
                             )
                 
-                time.sleep(2)  # Check every 2 seconds for pending trades
+                time.sleep(0.1)  # Check every 0.1 seconds for pending trades
                 
             except Exception as e:
                 print(f"{Fore.RED}❌ Error in execution loop: {e}{Style.RESET_ALL}")
@@ -121,7 +121,7 @@ class TradeExecutor:
     
     def _execute_buy_strategy(self, trade: UserActivity, my_balance: float,
                             target_balance: float) -> bool:
-        """Execute buy strategy with proportional sizing"""
+        """Execute buy strategy with proportional sizing using limit orders for precision"""
         try:
             if my_balance < 1.0:  # Minimum balance check
                 print(f"{Fore.YELLOW}⚠️ Insufficient balance to copy buy trade{Style.RESET_ALL}")
@@ -141,34 +141,53 @@ class TradeExecutor:
                 print(f"{Fore.YELLOW}⚠️ Copy amount too small: ${copy_amount:.2f} (would need at least $0.50){Style.RESET_ALL}")
                 return True
 
-            # Round to 2 decimals for Polymarket precision requirements
-            # Taker amount (USDC amount) must have max 2 decimal places
-            copy_amount = round(copy_amount, 2)
-
             print(f"📈 Buying ${copy_amount:.2f} worth of {trade.outcome}")
 
-            # OPTIMIZATION: Skip price checking for fastest execution
-            # In copy trading, speed is critical - we accept current market price
-            # to ensure we get filled before price moves further
+            # Get orderbook to find best ask price (what sellers are asking)
+            try:
+                orderbook = self.clob_client.get_order_book(trade.asset)
 
-            # Create market buy order
-            market_order_args = MarketOrderArgs(
+                if not orderbook.asks or len(orderbook.asks) == 0:
+                    print(f"{Fore.RED}❌ No asks available in orderbook{Style.RESET_ALL}")
+                    return False
+
+                # Find best ask (lowest price sellers are willing to accept)
+                best_ask_price = min(float(ask.price) for ask in orderbook.asks)
+
+                # Add small buffer to ensure we get filled (0.5% above best ask)
+                buy_price = best_ask_price * 1.005
+
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️ Could not get orderbook, using trade price: {e}{Style.RESET_ALL}")
+                buy_price = trade.price * 1.01  # 1% above trade price for safety
+
+            # Round to Polymarket precision requirements
+            buy_price = round(buy_price, 4)  # Price: max 4 decimals
+
+            # Calculate number of shares we can buy with our USDC amount
+            shares_to_buy = copy_amount / buy_price
+            shares_to_buy = round(shares_to_buy, 2)  # Size: max 2 decimals
+
+            print(f"📝 Creating LIMIT buy order: {shares_to_buy} shares at ${buy_price:.4f}")
+
+            # Create limit buy order with full precision control
+            order_args = OrderArgs(
                 token_id=trade.asset,
-                amount=copy_amount,
+                price=buy_price,
+                size=shares_to_buy,
                 side=BUY
             )
 
-            signed_order = self.clob_client.create_market_order(market_order_args)
-            # Use GTC (Good Till Cancel) instead of FOK for better fill rates in fast markets
+            signed_order = self.clob_client.create_order(order_args)
             response = self.clob_client.post_order(signed_order, OrderType.GTC)
-            
+
             if response.get('success', False):
-                print(f"{Fore.GREEN}✅ Successfully bought ${copy_amount:.2f} worth{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}✅ Successfully bought {shares_to_buy} shares at ${buy_price:.4f}{Style.RESET_ALL}")
                 return True
             else:
                 print(f"{Fore.RED}❌ Buy order failed: {response}{Style.RESET_ALL}")
                 return False
-                
+
         except Exception as e:
             print(f"{Fore.RED}❌ Error in buy strategy: {e}{Style.RESET_ALL}")
             return False
