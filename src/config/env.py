@@ -20,7 +20,7 @@ class Config:
     
     # API URLs
     HOST = os.getenv('HOST', 'https://clob.polymarket.com')
-    POLYMARKET_API_URL = 'https://data-api.polymarket.com'
+    POLYMARKET_API_URL = 'https://gamma-api.polymarket.com'
     
     # Trading parameters
     FETCH_INTERVAL = float(os.getenv('FETCH_INTERVAL', '0.1'))  # seconds

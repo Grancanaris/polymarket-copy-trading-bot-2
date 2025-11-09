@@ -16,7 +16,7 @@ class ScalpingConfig:
 
     # API URLs
     HOST = os.getenv('HOST', 'https://clob.polymarket.com')
-    POLYMARKET_API_URL = os.getenv('POLYMARKET_API_URL', 'https://data-api.polymarket.com')
+    POLYMARKET_API_URL = os.getenv('POLYMARKET_API_URL', 'https://gamma-api.polymarket.com')
 
     # Trading parameters
     SCAN_INTERVAL = float(os.getenv('SCAN_INTERVAL', '0.1'))
