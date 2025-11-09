@@ -526,13 +526,18 @@ class MarketFetcher:
                     'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'cryptocurrency',
                     'solana', 'sol', 'cardano', 'ada', 'polygon', 'matic', 'dogecoin',
                     'doge', 'xrp', 'ripple', 'litecoin', 'ltc', 'usdt', 'usdc', 'tether',
+                    'chainlink', 'link', 'polkadot', 'dot', 'avalanche', 'avax',
+                    'shiba', 'shib', 'binance', 'bnb',
                     # Crypto-specific terms
-                    'blockchain', 'defi', 'nft', 'token', 'coin', 'altcoin',
-                    'satoshi', 'mining', 'hash rate', 'proof of',
+                    'blockchain', 'defi', 'nft', 'token ', 'coin', 'altcoin',
+                    'satoshi', 'mining', 'hash rate', 'proof of stake', 'proof of work',
+                    'smart contract', 'web3', 'dapp',
                     # Price-related (when combined with crypto context)
-                    '$50k', '$100k', 'btc price', 'eth price', 'crypto price',
+                    '$50k btc', '$100k btc', '$50k ethereum', '$100k ethereum',
+                    'btc price', 'eth price', 'crypto price', 'bitcoin price', 'ethereum price',
                     # Exchanges and platforms
-                    'coinbase', 'binance', 'kraken', 'ftx', 'uniswap'
+                    'coinbase', 'kraken', 'ftx', 'uniswap', 'opensea', 'metamask',
+                    'exchange', 'wallet', 'halving', 'fork', 'memecoin'
                 ]
 
                 # Check if question/description contains crypto indicators
@@ -546,6 +551,33 @@ class MarketFetcher:
                     if not hasattr(self, '_debug_non_crypto_filtered'):
                         print(f"🔍 DEBUG: Filtered out non-crypto market: {market_data.get('question', '')[:80]}")
                         self._debug_non_crypto_filtered = True
+                    return None
+
+                # IMPORTANT: Exclude false positives (markets about politics/economy that mention crypto tangentially)
+                exclude_terms = [
+                    'fed rate', 'federal reserve', 'interest rate',
+                    'trump', 'biden', 'president ', 'election',
+                    'putin', 'russia', 'ukraine', 'nato',
+                    'israel', 'netanyahu', 'iran', 'khamenei',
+                    'recession', 'unemployment',
+                    'supreme court', 'senate', 'congress',
+                    'nuclear weapon', 'supreme leader',
+                    'cease', 'ceasefire', 'weed', 'rescheduled',
+                    'insolvent', 'depeg',  # Keep these unless they're about USDT/crypto stablecoins
+                ]
+
+                # Check for exclude terms
+                has_exclude_term = any(term in question or term in description for term in exclude_terms)
+
+                # Special case: Allow "depeg" or "insolvent" if it's about USDT/USDC/Tether
+                if has_exclude_term and ('depeg' in question or 'insolvent' in question):
+                    if 'usdt' in question or 'tether' in question or 'usdc' in question:
+                        has_exclude_term = False  # It's a valid crypto market
+
+                if has_exclude_term:
+                    if not hasattr(self, '_debug_excluded_market'):
+                        print(f"🔍 DEBUG: Excluded false positive: {market_data.get('question', '')[:80]}")
+                        self._debug_excluded_market = True
                     return None
 
             # Filter by keywords if provided (strict matching)
